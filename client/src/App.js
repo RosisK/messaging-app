@@ -189,29 +189,29 @@ function Home() {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser) return;
-
+  
+    // Create the temp message first so it's available in the catch block
+    const tempMessage = {
+      id: Date.now(), // temporary ID
+      sender_id: user.id,
+      receiver_id: selectedUser.id,
+      content: newMessage,
+      timestamp: new Date().toISOString(),
+      sender_name: user.username
+    };
+  
     try {
-      // Create a temporary message object for immediate UI update
-      const tempMessage = {
-        id: Date.now(), // temporary ID
-        sender_id: user.id,
-        receiver_id: selectedUser.id,
-        content: newMessage,
-        timestamp: new Date().toISOString(),
-        sender_name: user.username
-      };
-
-      // Optimistically update the UI
+      // Optimistically update UI
       setMessages(prev => [...prev, tempMessage]);
       setNewMessage('');
-
+  
       // Send via Socket.IO
       socket.emit('sendMessage', {
         senderId: user.id,
         receiverId: selectedUser.id,
         content: newMessage
       });
-
+  
     } catch (err) {
       console.error("Failed to send message:", err);
       // Revert the message if sending failed
