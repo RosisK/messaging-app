@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg'); // Changed from sqlite3 to pg
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const http = require('http');
@@ -19,101 +19,106 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, '../client/build')));
 app.use(bodyParser.json());
 
-// Database setup
-const db = new sqlite3.Database('./messaging.db', (err) => {
-  if (err) {
-    console.error(err.message);
+// PostgreSQL setup
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/messaging',
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+// Create tables (async/await version)
+const initializeDatabase = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE,
+        password TEXT
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        sender_id INTEGER REFERENCES users(id),
+        receiver_id INTEGER REFERENCES users(id),
+        content TEXT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Database tables initialized');
+  } catch (err) {
+    console.error('Database initialization error:', err);
   }
-  console.log('Connected to the messaging database.');
-});
+};
 
-// Create tables
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
-      password TEXT
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sender_id INTEGER,
-      receiver_id INTEGER,
-      content TEXT,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (sender_id) REFERENCES users(id),
-      FOREIGN KEY (receiver_id) REFERENCES users(id)
-    )
-  `);
-});
+initializeDatabase();
 
 // User registration
-app.post('/register', (req, res) => {
+app.post('/register', async (req, res) => {
   const { username, password } = req.body;
   
-  db.run('INSERT INTO users (username, password) VALUES (?, ?)', 
-    [username, password], 
-    function(err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-      res.json({ id: this.lastID, username });
-    }
-  );
+  try {
+    const result = await pool.query(
+      'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
+      [username, password]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // User login
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   
-  db.get('SELECT * FROM users WHERE username = ? AND password = ?', 
-    [username, password], 
-    (err, user) => {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-      if (!user) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-      res.json({ id: user.id, username: user.username });
+  try {
+    const result = await pool.query(
+      'SELECT id, username FROM users WHERE username = $1 AND password = $2',
+      [username, password]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-  );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Get all users
-app.get('/users', (req, res) => {
-  db.all('SELECT id, username FROM users', [], (err, users) => {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-    res.json(users);
-  });
+app.get('/users', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, username FROM users');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Get messages between two users
-app.get('/messages/:senderId/:receiverId', (req, res) => {
+app.get('/messages/:senderId/:receiverId', async (req, res) => {
   const { senderId, receiverId } = req.params;
   
-  db.all(`
-    SELECT m.*, u.username as sender_name 
-    FROM messages m
-    JOIN users u ON m.sender_id = u.id
-    WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-    ORDER BY timestamp
-  `, [senderId, receiverId, receiverId, senderId], (err, messages) => {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-    res.json(messages);
-  });
+  try {
+    const result = await pool.query(`
+      SELECT m.*, u.username as sender_name 
+      FROM messages m
+      JOIN users u ON m.sender_id = u.id
+      WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)
+      ORDER BY timestamp
+    `, [senderId, receiverId]);
+    
+    res.json(result.rows);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
-  });
+  res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+});
 
 // Socket.io for real-time messaging
 io.on('connection', (socket) => {
@@ -124,31 +129,31 @@ io.on('connection', (socket) => {
     console.log(`User ${userId} joined their room`);
   });
   
-  socket.on('sendMessage', ({ senderId, receiverId, content }) => {
-    db.run(
-      'INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)',
-      [senderId, receiverId, content],
-      function(err) {
-        if (err) {
-          console.error(err);
-          return;
-        }
+  socket.on('sendMessage', async ({ senderId, receiverId, content }) => {
+    try {
+      // Insert message
+      const insertResult = await pool.query(
+        'INSERT INTO messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING *',
+        [senderId, receiverId, content]
+      );
+      
+      // Get sender username
+      const senderResult = await pool.query(
+        'SELECT username FROM users WHERE id = $1',
+        [senderId]
+      );
+      
+      if (senderResult.rows.length > 0) {
+        const message = {
+          ...insertResult.rows[0],
+          sender_name: senderResult.rows[0].username
+        };
         
-        db.get(`
-          SELECT m.*, u.username as sender_name 
-          FROM messages m
-          JOIN users u ON m.sender_id = u.id
-          WHERE m.id = ?
-        `, [this.lastID], (err, message) => {
-          if (err) {
-            console.error(err);
-            return;
-          }
-          
-          io.to(receiverId).to(senderId).emit('receiveMessage', message);
-        });
+        io.to(receiverId).to(senderId).emit('receiveMessage', message);
       }
-    );
+    } catch (err) {
+      console.error('Error sending message:', err);
+    }
   });
   
   socket.on('disconnect', () => {
@@ -156,7 +161,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
