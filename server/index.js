@@ -87,10 +87,14 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Get all users
+// Updated /users endpoint
 app.get('/users', async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, username FROM users');
+    const currentUserId = req.query.currentUserId; // Pass this from frontend
+    const result = await pool.query(
+      'SELECT id, username FROM users WHERE id != $1',
+      [currentUserId]
+    );
     res.json(result.rows);
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -3,10 +3,8 @@ import { BrowserRouter as Router, Route, Routes, Navigate, Link } from 'react-ro
 import axios from 'axios';
 import io from 'socket.io-client';
 
-// const socket = io('http://localhost:5000');
 const socket = io('https://messaging-app-backend-zsdk.onrender.com');
 
-// Auth context
 const AuthContext = React.createContext();
 
 function App() {
@@ -14,7 +12,6 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in (simple session persistence)
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       setUser(JSON.parse(savedUser));
@@ -48,7 +45,6 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // const response = await axios.post('http://localhost:5000/login', { username, password });
       const response = await axios.post('https://messaging-app-backend-zsdk.onrender.com/login', { username, password });
       localStorage.setItem('user', JSON.stringify(response.data));
       setUser(response.data);
@@ -87,7 +83,6 @@ function Login() {
   );
 }
 
-// A comment here
 function Register() {
   const { setUser } = React.useContext(AuthContext);
   const [username, setUsername] = useState('');
@@ -97,7 +92,6 @@ function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // const response = await axios.post('http://localhost:5000/register', { username, password });
       const response = await axios.post('https://messaging-app-backend-zsdk.onrender.com/register', { username, password });
       localStorage.setItem('user', JSON.stringify(response.data));
       setUser(response.data);
@@ -105,7 +99,6 @@ function Register() {
       setError(err.response?.data?.error || 'Registration failed');
     }
   };
-
 
   return (
     <div style={{ maxWidth: '400px', margin: '0 auto', padding: '20px' }}>
@@ -144,20 +137,35 @@ function Home() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
 
-  useEffect(() => {
-    // Join user's room for real-time updates
-    if (user) {
-      socket.emit('join', user.id);
+  const fetchUsers = async () => {
+    try {
+      const response = await axios.get(
+        `https://messaging-app-backend-zsdk.onrender.com/users?currentUserId=${user.id}`
+      );
+      setUsers(response.data);
+    } catch (err) {
+      console.error("Failed to fetch users:", err);
     }
+  };
 
-    // Fetch all users
-    axios.get('http://localhost:5000/users')
-      .then(response => {
-        setUsers(response.data.filter(u => u.id !== user.id));
-      })
-      .catch(err => console.error(err));
+  const fetchMessages = async () => {
+    if (!selectedUser) return;
+    try {
+      const response = await axios.get(
+        `https://messaging-app-backend-zsdk.onrender.com/messages/${user.id}/${selectedUser.id}`
+      );
+      setMessages(response.data);
+    } catch (err) {
+      console.error("Failed to fetch messages:", err);
+    }
+  };
 
-    // Listen for new messages
+  useEffect(() => {
+    if (!user) return;
+
+    socket.emit('join', user.id);
+    fetchUsers();
+
     socket.on('receiveMessage', (message) => {
       if (
         (message.sender_id === selectedUser?.id && message.receiver_id === user.id) ||
@@ -165,6 +173,8 @@ function Home() {
       ) {
         setMessages(prev => [...prev, message]);
       }
+      // Refresh user list when receiving new messages
+      fetchUsers();
     });
 
     return () => {
@@ -173,14 +183,8 @@ function Home() {
   }, [user, selectedUser]);
 
   useEffect(() => {
-    if (selectedUser) {
-      axios.get(`http://localhost:5000/messages/${user.id}/${selectedUser.id}`)
-        .then(response => {
-          setMessages(response.data);
-        })
-        .catch(err => console.error(err));
-    }
-  }, [selectedUser, user.id]);
+    fetchMessages();
+  }, [selectedUser]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
