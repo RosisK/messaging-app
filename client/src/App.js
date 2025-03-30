@@ -3,7 +3,8 @@ import { BrowserRouter as Router, Route, Routes, Navigate, Link } from 'react-ro
 import axios from 'axios';
 import io from 'socket.io-client';
 
-const socket = io('http://localhost:5000');
+// const socket = io('http://localhost:5000');
+const socket = io('https://messaging-app-backend-zsdk.onrender.com');
 
 // Auth context
 const AuthContext = React.createContext();
@@ -47,7 +48,8 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:5000/login', { username, password });
+      // const response = await axios.post('http://localhost:5000/login', { username, password });
+      const response = await axios.post('https://messaging-app-backend-zsdk.onrender.com/login', { username, password });
       localStorage.setItem('user', JSON.stringify(response.data));
       setUser(response.data);
     } catch (err) {
@@ -95,7 +97,8 @@ function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:5000/register', { username, password });
+      // const response = await axios.post('http://localhost:5000/register', { username, password });
+      const response = await axios.post('https://messaging-app-backend-zsdk.onrender.com/register', { username, password });
       localStorage.setItem('user', JSON.stringify(response.data));
       setUser(response.data);
     } catch (err) {
