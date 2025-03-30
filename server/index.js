@@ -134,20 +134,28 @@ io.on('connection', (socket) => {
   });
   
   socket.on('sendMessage', async ({ senderId, receiverId, content }, callback) => {
+    console.log('Received message:', { senderId, receiverId, content }); // Debug log
+    
     try {
+      // Verify users exist first
+      const senderCheck = await pool.query('SELECT id FROM users WHERE id = $1', [senderId]);
+      const receiverCheck = await pool.query('SELECT id FROM users WHERE id = $1', [receiverId]);
+      
+      if (senderCheck.rows.length === 0 || receiverCheck.rows.length === 0) {
+        throw new Error('Invalid sender or receiver');
+      }
+  
       // Save message to database
       const { rows } = await pool.query(
-        `WITH inserted AS (
-          INSERT INTO messages (sender_id, receiver_id, content) 
-          VALUES ($1, $2, $3)
-          RETURNING *, 
-          (SELECT username FROM users WHERE id = $1) AS sender_name
-        ) 
-        SELECT * FROM inserted`,
+        `INSERT INTO messages (sender_id, receiver_id, content) 
+         VALUES ($1, $2, $3) 
+         RETURNING *, 
+         (SELECT username FROM users WHERE id = $1) as sender_name`,
         [senderId, receiverId, content]
       );
   
       const savedMessage = rows[0];
+      console.log('Saved message:', savedMessage); // Debug log
       
       // Notify both users
       io.to(receiverId).emit('newMessage', savedMessage);
@@ -156,7 +164,7 @@ io.on('connection', (socket) => {
       // Acknowledge success
       callback({ status: 'success', message: savedMessage });
     } catch (err) {
-      console.error('Error sending message:', err);
+      console.error('Message send error:', err); // Detailed error log
       callback({ status: 'error', error: err.message });
     }
   });
