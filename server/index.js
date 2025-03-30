@@ -126,7 +126,11 @@ app.get('*', (req, res) => {
 
 // Socket.io for real-time messaging
 io.on('connection', (socket) => {
-  console.log('New client connected');
+  console.log(`New client connected: ${socket.id}`);
+  
+  socket.on('error', (err) => {
+    console.error('Socket error:', err);
+  });
   
   socket.on('join', (userId) => {
     socket.join(userId);
@@ -169,8 +173,8 @@ io.on('connection', (socket) => {
     }
   });
   
-  socket.on('disconnect', () => {
-    console.log('Client disconnected');
+  socket.on('disconnect', (reason) => {
+    console.log(`Client disconnected: ${reason}`);
   });
 });
 

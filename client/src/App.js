@@ -9,7 +9,14 @@ import {
 import axios from "axios";
 import io from "socket.io-client";
 
-const socket = io("https://messaging-app-backend-zsdk.onrender.com");
+const socketUrl = 'https://messaging-app-backend-zsdk.onrender.com';
+console.log('Connecting to Socket.IO at:', socketUrl);
+const socket = io(socketUrl, {
+  transports: ['websocket'], // Force WebSocket transport
+  reconnectionAttempts: 5, // Number of reconnect attempts
+  reconnectionDelay: 1000, // Time between reconnections
+  timeout: 20000 // Connection timeout
+});
 
 const AuthContext = React.createContext();
 
@@ -162,7 +169,82 @@ function Home() {
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState("");
     const [isSending, setIsSending] = useState(false);
-    const [isConnected, setIsConnected] = useState(socket.connected);
+    const [isConnected, setIsConnected] = useState(false);
+    const [transport, setTransport] = useState("N/A");
+
+  useEffect(() => {
+    const onConnect = () => {
+      setIsConnected(true);
+      setTransport(socket.io.engine.transport.name);
+      console.log('Socket connected via:', socket.io.engine.transport.name);
+    };
+
+    const onDisconnect = () => {
+      setIsConnected(false);
+      console.log('Socket disconnected');
+    };
+
+    const onConnectError = (err) => {
+      console.error('Connection error:', err);
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+    socket.on('transport-upgrade', (transport) => {
+      console.log('Transport upgraded to:', transport.name);
+      setTransport(transport.name);
+    });
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
+      socket.off('transport-upgrade');
+    };
+  }, []);
+
+  // More detailed status indicator
+  const connectionStatus = () => (
+    <div style={{
+      position: 'fixed',
+      bottom: 10,
+      right: 10,
+      padding: '8px 12px',
+      backgroundColor: isConnected ? '#4CAF50' : '#F44336',
+      color: 'white',
+      borderRadius: '4px',
+      display: 'flex',
+      alignItems: 'center',
+      fontSize: '14px'
+    }}>
+      <div style={{
+        width: '10px',
+        height: '10px',
+        borderRadius: '50%',
+        backgroundColor: 'white',
+        marginRight: '8px',
+        opacity: isConnected ? 1 : 0.5
+      }} />
+      {isConnected ? `Connected (${transport})` : 'Disconnected'}
+      {!isConnected && (
+        <button 
+          onClick={() => socket.connect()}
+          style={{
+            marginLeft: '10px',
+            padding: '2px 8px',
+            background: 'white',
+            color: '#F44336',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+        >
+          Reconnect
+        </button>
+      )}
+    </div>
+  );
 
     // Fetch users and messages
     const fetchData = async () => {
