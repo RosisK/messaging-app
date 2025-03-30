@@ -166,60 +166,15 @@ function Home() {
     socket.emit('join', user.id);
     fetchUsers();
 
-    socket.on('receiveMessage', (message) => {
-      if (
-        (message.sender_id === selectedUser?.id && message.receiver_id === user.id) ||
-        (message.receiver_id === selectedUser?.id && message.sender_id === user.id)
-      ) {
-        setMessages(prev => [...prev, message]);
-      }
-      // Refresh user list when receiving new messages
-      fetchUsers();
-    });
-
     return () => {
       socket.off('receiveMessage');
     };
-  }, [user, selectedUser]);
+  }, [user]);
 
   useEffect(() => {
     fetchMessages();
-  }, [selectedUser]);
+  }, [selectedUser, user?.id]);
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !selectedUser) return;
-  
-    // Create the temp message first so it's available in the catch block
-    const tempMessage = {
-      id: Date.now(), // temporary ID
-      sender_id: user.id,
-      receiver_id: selectedUser.id,
-      content: newMessage,
-      timestamp: new Date().toISOString(),
-      sender_name: user.username
-    };
-  
-    try {
-      // Optimistically update UI
-      setMessages(prev => [...prev, tempMessage]);
-      setNewMessage('');
-  
-      // Send via Socket.IO
-      socket.emit('sendMessage', {
-        senderId: user.id,
-        receiverId: selectedUser.id,
-        content: newMessage
-      });
-  
-    } catch (err) {
-      console.error("Failed to send message:", err);
-      // Revert the message if sending failed
-      setMessages(prev => prev.filter(m => m.id !== tempMessage.id));
-    }
-  };
-
-  // Update the Socket.IO message listener
   useEffect(() => {
     if (!user) return;
 
@@ -229,14 +184,9 @@ function Home() {
         (message.receiver_id === selectedUser?.id && message.sender_id === user.id)
       ) {
         setMessages(prev => {
-          // Replace temp message with real one from server
-          const existingIndex = prev.findIndex(m => m.tempId === message.id);
-          if (existingIndex >= 0) {
-            const newMessages = [...prev];
-            newMessages[existingIndex] = message;
-            return newMessages;
-          }
-          return [...prev, message];
+          // Check if message already exists
+          const exists = prev.some(m => m.id === message.id);
+          return exists ? prev : [...prev, message];
         });
       }
     };
@@ -247,6 +197,37 @@ function Home() {
       socket.off('receiveMessage', messageListener);
     };
   }, [user, selectedUser]);
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !selectedUser) return;
+
+    const tempId = Date.now();
+    const tempMessage = {
+      tempId,
+      sender_id: user.id,
+      receiver_id: selectedUser.id,
+      content: newMessage,
+      timestamp: new Date().toISOString(),
+      sender_name: user.username,
+      isTemp: true
+    };
+
+    try {
+      setMessages(prev => [...prev, tempMessage]);
+      setNewMessage('');
+
+      socket.emit('sendMessage', {
+        senderId: user.id,
+        receiverId: selectedUser.id,
+        content: newMessage
+      });
+
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      setMessages(prev => prev.filter(m => m.tempId !== tempId));
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -284,7 +265,7 @@ function Home() {
             <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
               {messages.map((message, index) => (
                 <div 
-                  key={index} 
+                  key={message.id || index}
                   style={{ 
                     textAlign: message.sender_id === user.id ? 'right' : 'left',
                     margin: '10px 0'

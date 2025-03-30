@@ -134,32 +134,25 @@ io.on('connection', (socket) => {
   });
   
   socket.on('sendMessage', async ({ senderId, receiverId, content }) => {
-    try {
-      // Insert message into database
-      const result = await pool.query(
-        'INSERT INTO messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING *',
-        [senderId, receiverId, content]
-      );
-  
-      // Get sender's username
-      const senderResult = await pool.query(
-        'SELECT username FROM users WHERE id = $1',
-        [senderId]
-      );
-  
-      if (senderResult.rows.length > 0) {
-        const message = {
-          ...result.rows[0],
-          sender_name: senderResult.rows[0].username
-        };
-        
-        // Emit to both sender and receiver
-        io.to(receiverId).to(senderId).emit('receiveMessage', message);
-      }
-    } catch (err) {
-      console.error('Error sending message:', err);
+  try {
+    // Insert message into database
+    const messageResult = await pool.query(
+      `INSERT INTO messages (sender_id, receiver_id, content) 
+       VALUES ($1, $2, $3) 
+       RETURNING *, 
+       (SELECT username FROM users WHERE id = $1) as sender_name`,
+      [senderId, receiverId, content]
+    );
+
+    if (messageResult.rows.length > 0) {
+      const message = messageResult.rows[0];
+      // Emit to both sender and receiver
+      io.to(receiverId).to(senderId).emit('receiveMessage', message);
     }
-  });
+  } catch (err) {
+    console.error('Error sending message:', err);
+  }
+});
   
   socket.on('disconnect', () => {
     console.log('Client disconnected');
