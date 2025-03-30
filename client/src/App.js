@@ -218,36 +218,21 @@ function Home() {
         const onConnect = () => {
             setIsConnected(true);
             console.log("Socket connected");
-            setSocketErrors((prev) => [
-                ...prev,
-                "Connected at: " + new Date().toLocaleTimeString(),
-            ]);
         };
 
         const onDisconnect = () => {
             setIsConnected(false);
             console.log("Socket disconnected");
-            setSocketErrors((prev) => [
-                ...prev,
-                "Disconnected at: " + new Date().toLocaleTimeString(),
-            ]);
-        };
-
-        const onConnectError = (error) => {
-            console.log("Socket connection error:", error);
-            setSocketErrors((prev) => [...prev, "Error: " + error.message]);
         };
 
         // Setup event listeners
         socket.on("connect", onConnect);
         socket.on("disconnect", onDisconnect);
-        socket.on("connect_error", onConnectError);
 
         // Cleanup function
         return () => {
             socket.off("connect", onConnect);
             socket.off("disconnect", onDisconnect);
-            socket.off("connect_error", onConnectError);
         };
     }, []); // Empty dependency array means this runs once on mount
 
@@ -486,7 +471,7 @@ function Home() {
                         width: "10px",
                         height: "10px",
                         borderRadius: "50%",
-                        backgroundColor: isConnected ? "#fff" : "#fff",
+                        backgroundColor: "white",
                         marginRight: "8px",
                         animation: isConnected ? "pulse 2s infinite" : "none",
                     }}
