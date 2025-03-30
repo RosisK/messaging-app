@@ -133,26 +133,33 @@ io.on('connection', (socket) => {
     console.log(`User ${userId} joined their room`);
   });
   
-  socket.on('sendMessage', async ({ senderId, receiverId, content }) => {
-  try {
-    // Insert message into database
-    const messageResult = await pool.query(
-      `INSERT INTO messages (sender_id, receiver_id, content) 
-       VALUES ($1, $2, $3) 
-       RETURNING *, 
-       (SELECT username FROM users WHERE id = $1) as sender_name`,
-      [senderId, receiverId, content]
-    );
-
-    if (messageResult.rows.length > 0) {
-      const message = messageResult.rows[0];
-      // Emit to both sender and receiver
-      io.to(receiverId).to(senderId).emit('receiveMessage', message);
+  socket.on('sendMessage', async ({ senderId, receiverId, content }, callback) => {
+    try {
+      // Save message to database
+      const { rows } = await pool.query(
+        `WITH inserted AS (
+          INSERT INTO messages (sender_id, receiver_id, content) 
+          VALUES ($1, $2, $3)
+          RETURNING *, 
+          (SELECT username FROM users WHERE id = $1) AS sender_name
+        ) 
+        SELECT * FROM inserted`,
+        [senderId, receiverId, content]
+      );
+  
+      const savedMessage = rows[0];
+      
+      // Notify both users
+      io.to(receiverId).emit('newMessage', savedMessage);
+      io.to(senderId).emit('newMessage', savedMessage);
+      
+      // Acknowledge success
+      callback({ status: 'success', message: savedMessage });
+    } catch (err) {
+      console.error('Error sending message:', err);
+      callback({ status: 'error', error: err.message });
     }
-  } catch (err) {
-    console.error('Error sending message:', err);
-  }
-});
+  });
   
   socket.on('disconnect', () => {
     console.log('Client disconnected');

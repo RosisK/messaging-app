@@ -136,72 +136,61 @@ function Home() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
-  const fetchUsers = async () => {
+  // Fetch users and messages
+  const fetchData = async () => {
+    if (!user) return;
+    
     try {
-      const response = await axios.get(
+      // Get all users except current user
+      const usersResponse = await axios.get(
         `https://messaging-app-backend-zsdk.onrender.com/users?currentUserId=${user.id}`
       );
-      setUsers(response.data);
+      setUsers(usersResponse.data);
+
+      // Get messages if a user is selected
+      if (selectedUser) {
+        const messagesResponse = await axios.get(
+          `https://messaging-app-backend-zsdk.onrender.com/messages/${user.id}/${selectedUser.id}`
+        );
+        setMessages(messagesResponse.data);
+      }
     } catch (err) {
-      console.error("Failed to fetch users:", err);
+      console.error("Failed to fetch data:", err);
     }
   };
 
-  const fetchMessages = async () => {
-    if (!selectedUser) return;
-    try {
-      const response = await axios.get(
-        `https://messaging-app-backend-zsdk.onrender.com/messages/${user.id}/${selectedUser.id}`
-      );
-      setMessages(response.data);
-    } catch (err) {
-      console.error("Failed to fetch messages:", err);
-    }
-  };
-
+  // Initialize socket and data
   useEffect(() => {
     if (!user) return;
 
     socket.emit('join', user.id);
-    fetchUsers();
+    fetchData();
 
-    return () => {
-      socket.off('receiveMessage');
-    };
-  }, [user]);
-
-  useEffect(() => {
-    fetchMessages();
-  }, [selectedUser, user?.id]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const messageListener = (message) => {
+    // Message received handler
+    const handleNewMessage = (message) => {
       if (
-        (message.sender_id === selectedUser?.id && message.receiver_id === user.id) ||
-        (message.receiver_id === selectedUser?.id && message.sender_id === user.id)
+        (message.sender_id === user.id && message.receiver_id === selectedUser?.id) ||
+        (message.receiver_id === user.id && message.sender_id === selectedUser?.id)
       ) {
-        setMessages(prev => {
-          // Check if message already exists
-          const exists = prev.some(m => m.id === message.id);
-          return exists ? prev : [...prev, message];
-        });
+        setMessages(prev => [...prev, message]);
       }
     };
 
-    socket.on('receiveMessage', messageListener);
+    socket.on('newMessage', handleNewMessage);
 
     return () => {
-      socket.off('receiveMessage', messageListener);
+      socket.off('newMessage', handleNewMessage);
     };
   }, [user, selectedUser]);
 
+  // Handle sending messages
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedUser) return;
+    if (!newMessage.trim() || !selectedUser || isSending) return;
 
+    setIsSending(true);
     const tempId = Date.now();
     const tempMessage = {
       tempId,
@@ -210,22 +199,40 @@ function Home() {
       content: newMessage,
       timestamp: new Date().toISOString(),
       sender_name: user.username,
-      isTemp: true
+      isPending: true
     };
 
     try {
+      // Optimistic update
       setMessages(prev => [...prev, tempMessage]);
       setNewMessage('');
 
-      socket.emit('sendMessage', {
-        senderId: user.id,
-        receiverId: selectedUser.id,
-        content: newMessage
-      });
-
+      // Send via Socket.IO with acknowledgement
+      socket.emit('sendMessage', 
+        {
+          senderId: user.id,
+          receiverId: selectedUser.id,
+          content: newMessage
+        },
+        (response) => {
+          if (response.status === 'success') {
+            // Replace temp message with confirmed message
+            setMessages(prev => prev.map(m => 
+              m.tempId === tempId ? response.message : m
+            ));
+          } else {
+            // Mark as failed
+            setMessages(prev => prev.map(m => 
+              m.tempId === tempId ? {...m, isPending: false, failed: true} : m
+            ));
+          }
+        }
+      );
     } catch (err) {
       console.error("Failed to send message:", err);
       setMessages(prev => prev.filter(m => m.tempId !== tempId));
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -263,22 +270,26 @@ function Home() {
               <h3>Chat with {selectedUser.username}</h3>
             </div>
             <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
-              {messages.map((message, index) => (
+              {messages.map((message) => (
                 <div 
-                  key={message.id || index}
+                  key={message.id || message.tempId}
                   style={{ 
                     textAlign: message.sender_id === user.id ? 'right' : 'left',
-                    margin: '10px 0'
+                    margin: '10px 0',
+                    opacity: message.isPending ? 0.7 : 1
                   }}
                 >
                   <div style={{
                     display: 'inline-block',
                     padding: '8px 12px',
                     borderRadius: '12px',
-                    backgroundColor: message.sender_id === user.id ? '#007bff' : '#e9ecef',
+                    backgroundColor: message.failed ? '#ffebee' : 
+                                    message.sender_id === user.id ? '#007bff' : '#e9ecef',
                     color: message.sender_id === user.id ? 'white' : 'black'
                   }}>
                     {message.content}
+                    {message.isPending && ' (Sending...)'}
+                    {message.failed && ' (Failed)'}
                   </div>
                   <div style={{ fontSize: '0.8em', color: '#666' }}>
                     {new Date(message.timestamp).toLocaleTimeString()}
@@ -293,8 +304,15 @@ function Home() {
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
                 style={{ width: '80%', padding: '8px' }}
+                disabled={isSending}
               />
-              <button type="submit" style={{ width: '18%', padding: '8px' }}>Send</button>
+              <button 
+                type="submit" 
+                style={{ width: '18%', padding: '8px' }}
+                disabled={isSending}
+              >
+                {isSending ? 'Sending...' : 'Send'}
+              </button>
             </form>
           </>
         ) : (
