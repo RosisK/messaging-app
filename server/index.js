@@ -135,24 +135,25 @@ io.on('connection', (socket) => {
   
   socket.on('sendMessage', async ({ senderId, receiverId, content }) => {
     try {
-      // Insert message
-      const insertResult = await pool.query(
+      // Insert message into database
+      const result = await pool.query(
         'INSERT INTO messages (sender_id, receiver_id, content) VALUES ($1, $2, $3) RETURNING *',
         [senderId, receiverId, content]
       );
-      
-      // Get sender username
+  
+      // Get sender's username
       const senderResult = await pool.query(
         'SELECT username FROM users WHERE id = $1',
         [senderId]
       );
-      
+  
       if (senderResult.rows.length > 0) {
         const message = {
-          ...insertResult.rows[0],
+          ...result.rows[0],
           sender_name: senderResult.rows[0].username
         };
         
+        // Emit to both sender and receiver
         io.to(receiverId).to(senderId).emit('receiveMessage', message);
       }
     } catch (err) {

@@ -186,18 +186,67 @@ function Home() {
     fetchMessages();
   }, [selectedUser]);
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser) return;
 
-    socket.emit('sendMessage', {
-      senderId: user.id,
-      receiverId: selectedUser.id,
-      content: newMessage
-    });
+    try {
+      // Create a temporary message object for immediate UI update
+      const tempMessage = {
+        id: Date.now(), // temporary ID
+        sender_id: user.id,
+        receiver_id: selectedUser.id,
+        content: newMessage,
+        timestamp: new Date().toISOString(),
+        sender_name: user.username
+      };
 
-    setNewMessage('');
+      // Optimistically update the UI
+      setMessages(prev => [...prev, tempMessage]);
+      setNewMessage('');
+
+      // Send via Socket.IO
+      socket.emit('sendMessage', {
+        senderId: user.id,
+        receiverId: selectedUser.id,
+        content: newMessage
+      });
+
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      // Revert the message if sending failed
+      setMessages(prev => prev.filter(m => m.id !== tempMessage.id));
+    }
   };
+
+  // Update the Socket.IO message listener
+  useEffect(() => {
+    if (!user) return;
+
+    const messageListener = (message) => {
+      if (
+        (message.sender_id === selectedUser?.id && message.receiver_id === user.id) ||
+        (message.receiver_id === selectedUser?.id && message.sender_id === user.id)
+      ) {
+        setMessages(prev => {
+          // Replace temp message with real one from server
+          const existingIndex = prev.findIndex(m => m.tempId === message.id);
+          if (existingIndex >= 0) {
+            const newMessages = [...prev];
+            newMessages[existingIndex] = message;
+            return newMessages;
+          }
+          return [...prev, message];
+        });
+      }
+    };
+
+    socket.on('receiveMessage', messageListener);
+
+    return () => {
+      socket.off('receiveMessage', messageListener);
+    };
+  }, [user, selectedUser]);
 
   const handleLogout = () => {
     localStorage.removeItem('user');
