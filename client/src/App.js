@@ -172,6 +172,8 @@ function Home() {
   const [isConnected, setIsConnected] = useState(false);
   const [transport, setTransport] = useState("N/A");
 
+  const messageInputRef = React.useRef(null);
+
   useEffect(() => {
     const onConnect = () => {
       setIsConnected(true);
@@ -302,24 +304,35 @@ function Home() {
   // Message Listener
   useEffect(() => {
     if (!user) return;
-  
+
     const messageListener = (message) => {
       // Only add if it's a new message and belongs to current chat
-      if ((message.sender_id === selectedUser?.id || message.receiver_id === selectedUser?.id) &&
-          message.sender_id !== user.id) { // Don't add sender's own messages here
-        setMessages(prev => {
-          const exists = prev.some(m => m.id === message.id);
+      if (
+        (message.sender_id === selectedUser?.id ||
+          message.receiver_id === selectedUser?.id) &&
+        message.sender_id !== user.id
+      ) {
+        // Don't add sender's own messages here
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === message.id);
           return exists ? prev : [...prev, message];
         });
       }
     };
-  
-    socket.on('newMessage', messageListener);
-  
+
+    socket.on("newMessage", messageListener);
+
     return () => {
-      socket.off('newMessage', messageListener);
+      socket.off("newMessage", messageListener);
     };
   }, [user, selectedUser]);
+
+  // Focus when selectedUser changes
+  useEffect(() => {
+    if (selectedUser) {
+      messageInputRef.current?.focus();
+    }
+  }, [selectedUser]);
 
   useEffect(() => {
     // Connection status handlers
@@ -362,11 +375,15 @@ function Home() {
     };
 
     // Optimistic update
-    setMessages(prev => {
-        const exists = prev.some(m => m.tempId === tempId || 
-          (m.content === newMessage && Math.abs(new Date(m.timestamp) - Date.now() < 1000)));
-        return exists ? prev : [...prev, tempMessage];
-      });
+    setMessages((prev) => {
+      const exists = prev.some(
+        (m) =>
+          m.tempId === tempId ||
+          (m.content === newMessage &&
+            Math.abs(new Date(m.timestamp) - Date.now() < 1000))
+      );
+      return exists ? prev : [...prev, tempMessage];
+    });
     setNewMessage("");
 
     // Debug log before sending
@@ -413,6 +430,7 @@ function Home() {
             );
           }
           setIsSending(false);
+          messageInputRef.current?.focus();
         }
       );
     } catch (err) {
@@ -520,11 +538,18 @@ function Home() {
               }}
             >
               <input
+                ref={messageInputRef}
                 type="text"
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
-                style={{ width: "80%", padding: "8px" }}
+                style={{
+                  width: "80%",
+                  padding: "8px",
+                  outline: "none",
+                  border: "2px solid " + (isConnected ? "#4CAF50" : "#F44336"),
+                  borderRadius: "4px",
+                }}
                 disabled={isSending}
               />
               <button
