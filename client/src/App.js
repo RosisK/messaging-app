@@ -335,6 +335,17 @@ function Home() {
   }, [selectedUser]);
 
   useEffect(() => {
+    // Use a small timeout to ensure the element is rendered
+    const timer = setTimeout(() => {
+      if (selectedUser) {
+        messageInputRef.current?.focus();
+      }
+    }, 100);
+  
+    return () => clearTimeout(timer);
+  }, [selectedUser]);
+
+  useEffect(() => {
     // Connection status handlers
     const onConnect = () => {
       setIsConnected(true);
@@ -361,7 +372,12 @@ function Home() {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser || isSending) return;
-
+  
+    // Store the current scroll position
+    const chatContainer = document.querySelector('[style*="overflowY: auto"]');
+    const scrollBefore = chatContainer?.scrollTop;
+    const scrollHeightBefore = chatContainer?.scrollHeight;
+  
     setIsSending(true);
     const tempId = Date.now();
     const tempMessage = {
@@ -371,74 +387,45 @@ function Home() {
       content: newMessage,
       timestamp: new Date().toISOString(),
       sender_name: user.username,
-      isPending: true,
+      isPending: true
     };
-
-    // Optimistic update
-    setMessages((prev) => {
-      const exists = prev.some(
-        (m) =>
-          m.tempId === tempId ||
-          (m.content === newMessage &&
-            Math.abs(new Date(m.timestamp) - Date.now() < 1000))
-      );
-      return exists ? prev : [...prev, tempMessage];
-    });
-    setNewMessage("");
-
-    // Debug log before sending
-    console.log("Attempting to send:", {
-      senderId: user.id,
-      receiverId: selectedUser.id,
-      content: newMessage,
-    });
-
-    // Add timeout fallback
-    const timeout = setTimeout(() => {
-      console.warn("Socket.IO response timeout");
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.tempId === tempId ? { ...m, isPending: false, failed: true } : m
-        )
-      );
-      setIsSending(false);
-    }, 5000); // 5 second timeout
-
-    try {
-      socket.emit(
-        "sendMessage",
-        {
-          senderId: user.id,
-          receiverId: selectedUser.id,
-          content: newMessage,
-        },
-        (response) => {
-          clearTimeout(timeout);
-          console.log("Server response:", response); // Debug log
-
-          if (response.status === "success") {
-            setMessages((prev) =>
-              prev.map((m) => (m.tempId === tempId ? response.message : m))
-            );
-          } else {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.tempId === tempId
-                  ? { ...m, isPending: false, failed: true }
-                  : m
-              )
-            );
-          }
-          setIsSending(false);
-          messageInputRef.current?.focus();
+  
+    setMessages(prev => [...prev, tempMessage]);
+    setNewMessage('');
+  
+    // Focus the input immediately after state update
+    setTimeout(() => {
+      messageInputRef.current?.focus();
+    }, 0);
+  
+    socket.emit('sendMessage', 
+      {
+        senderId: user.id,
+        receiverId: selectedUser.id,
+        content: newMessage
+      },
+      (response) => {
+        setIsSending(false);
+        if (response.status === 'success') {
+          setMessages(prev => prev.map(m => 
+            m.tempId === tempId ? response.message : m
+          ));
+        } else {
+          setMessages(prev => prev.filter(m => m.tempId !== tempId));
         }
-      );
-    } catch (err) {
-      clearTimeout(timeout);
-      console.error("Socket emit error:", err);
-      setMessages((prev) => prev.filter((m) => m.tempId !== tempId));
-      setIsSending(false);
-    }
+        
+        // Restore focus after all updates complete
+        setTimeout(() => {
+          messageInputRef.current?.focus();
+          
+          // Restore scroll position if needed
+          if (chatContainer && scrollBefore !== undefined) {
+            const scrollDifference = chatContainer.scrollHeight - scrollHeightBefore;
+            chatContainer.scrollTop = scrollBefore + scrollDifference;
+          }
+        }, 0);
+      }
+    );
   };
 
   const handleLogout = () => {
@@ -538,20 +525,25 @@ function Home() {
               }}
             >
               <input
-                ref={messageInputRef}
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type a message..."
-                style={{
-                  width: "80%",
-                  padding: "8px",
-                  outline: "none",
-                  border: "2px solid " + (isConnected ? "#4CAF50" : "#F44336"),
-                  borderRadius: "4px",
-                }}
-                disabled={isSending}
-              />
+  ref={messageInputRef}
+  type="text"
+  value={newMessage}
+  onChange={(e) => setNewMessage(e.target.value)}
+  placeholder="Type a message..."
+  style={{ 
+    width: '80%', 
+    padding: '8px',
+    outline: 'none',
+    border: '2px solid black',
+    borderRadius: '4px',
+    flexShrink: 0 // Prevents layout shifts
+  }}
+  disabled={isSending}
+  onBlur={() => {
+    // Small timeout to allow click events to process first
+    setTimeout(() => messageInputRef.current?.focus(), 50);
+  }}
+/>
               <button
                 type="submit"
                 style={{ width: "18%", padding: "8px" }}
