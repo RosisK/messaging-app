@@ -1,7 +1,57 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BrowserRouter as Router, Route, Routes, Navigate, Link } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Route,
+  Routes,
+  Navigate,
+  Link,
+} from "react-router-dom";
 import axios from "axios";
 import io from "socket.io-client";
+
+// Custom hook to maintain focus
+function usePersistentFocus(ref, dependencies = []) {
+  useEffect(() => {
+    const input = ref.current;
+    if (!input) return;
+
+    // Save current selection
+    const saveSelection = () => {
+      const { selectionStart, selectionEnd } = input;
+      return () => {
+        if (document.activeElement !== input) {
+          input.focus();
+          input.setSelectionRange(selectionStart, selectionEnd);
+        }
+      };
+    };
+
+    // This will run after React's DOM updates
+    const rafId = requestAnimationFrame(() => {
+      const restore = saveSelection();
+      restore();
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, dependencies);
+}
+
+// Custom hook to prevent focus loss
+function usePreventFocusLoss(ref) {
+  useEffect(() => {
+    const input = ref.current;
+    if (!input) return;
+
+    const handleMouseDown = (e) => {
+      if (e.target.tagName === "BUTTON" && document.activeElement === input) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, []);
+}
 
 const socketUrl = "https://messaging-app-backend-zsdk.onrender.com";
 const socket = io(socketUrl, {
@@ -33,9 +83,18 @@ function App() {
     <AuthContext.Provider value={{ user, setUser }}>
       <Router>
         <Routes>
-          <Route path="/" element={user ? <Home /> : <Navigate to="/login" />} />
-          <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-          <Route path="/register" element={!user ? <Register /> : <Navigate to="/" />} />
+          <Route
+            path="/"
+            element={user ? <Home /> : <Navigate to="/login" />}
+          />
+          <Route
+            path="/login"
+            element={!user ? <Login /> : <Navigate to="/" />}
+          />
+          <Route
+            path="/register"
+            element={!user ? <Register /> : <Navigate to="/" />}
+          />
         </Routes>
       </Router>
     </AuthContext.Provider>
@@ -51,7 +110,10 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(`${socketUrl}/login`, { username, password });
+      const response = await axios.post(`${socketUrl}/login`, {
+        username,
+        password,
+      });
       localStorage.setItem("user", JSON.stringify(response.data));
       setUser(response.data);
     } catch (err) {
@@ -84,7 +146,9 @@ function Login() {
         </div>
         <button type="submit">Login</button>
       </form>
-      <p>Don't have an account? <Link to="/register">Register</Link></p>
+      <p>
+        Don't have an account? <Link to="/register">Register</Link>
+      </p>
     </div>
   );
 }
@@ -98,7 +162,10 @@ function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(`${socketUrl}/register`, { username, password });
+      const response = await axios.post(`${socketUrl}/register`, {
+        username,
+        password,
+      });
       localStorage.setItem("user", JSON.stringify(response.data));
       setUser(response.data);
     } catch (err) {
@@ -131,7 +198,9 @@ function Register() {
         </div>
         <button type="submit">Register</button>
       </form>
-      <p>Already have an account? <Link to="/login">Login</Link></p>
+      <p>
+        Already have an account? <Link to="/login">Login</Link>
+      </p>
     </div>
   );
 }
@@ -144,7 +213,11 @@ function Home() {
   const [newMessage, setNewMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+
   const messageInputRef = useRef(null);
+
+  usePersistentFocus(messageInputRef, [messages]);
+  usePreventFocusLoss(messageInputRef);
 
   // Focus lock implementation
   useEffect(() => {
@@ -157,8 +230,8 @@ function Home() {
       }
     };
 
-    input.addEventListener('blur', handleBlur);
-    return () => input.removeEventListener('blur', handleBlur);
+    input.addEventListener("blur", handleBlur);
+    return () => input.removeEventListener("blur", handleBlur);
   }, [selectedUser]);
 
   // Connection management
@@ -166,11 +239,11 @@ function Home() {
     const onConnect = () => setIsConnected(true);
     const onDisconnect = () => setIsConnected(false);
 
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
     };
   }, []);
 
@@ -180,9 +253,11 @@ function Home() {
 
     const fetchData = async () => {
       try {
-        const usersResponse = await axios.get(`${socketUrl}/users?currentUserId=${user.id}`);
+        const usersResponse = await axios.get(
+          `${socketUrl}/users?currentUserId=${user.id}`
+        );
         setUsers(usersResponse.data);
-        
+
         if (selectedUser) {
           const messagesResponse = await axios.get(
             `${socketUrl}/messages/${user.id}/${selectedUser.id}`
@@ -194,21 +269,25 @@ function Home() {
       }
     };
 
-    socket.emit('join', user.id);
+    socket.emit("join", user.id);
     fetchData();
 
     const messageListener = (message) => {
-      if ((message.sender_id === selectedUser?.id && message.receiver_id === user.id) ||
-          (message.receiver_id === selectedUser?.id && message.sender_id === user.id)) {
-        setMessages(prev => {
-          const exists = prev.some(m => m.id === message.id);
+      if (
+        (message.sender_id === selectedUser?.id &&
+          message.receiver_id === user.id) ||
+        (message.receiver_id === selectedUser?.id &&
+          message.sender_id === user.id)
+      ) {
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === message.id);
           return exists ? prev : [...prev, message];
         });
       }
     };
 
-    socket.on('newMessage', messageListener);
-    return () => socket.off('newMessage', messageListener);
+    socket.on("newMessage", messageListener);
+    return () => socket.off("newMessage", messageListener);
   }, [user, selectedUser]);
 
   // Focus when selecting user
@@ -221,6 +300,9 @@ function Home() {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser || isSending) return;
+
+    // Save cursor position
+    const { selectionStart, selectionEnd } = messageInputRef.current;
 
     setIsSending(true);
     const tempId = Date.now();
@@ -236,24 +318,32 @@ function Home() {
 
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
-    messageInputRef.current?.focus();
 
-    socket.emit('sendMessage', {
-      senderId: user.id,
-      receiverId: selectedUser.id,
-      content: newMessage
-    }, (response) => {
-      setIsSending(false);
-      if (response.status === 'success') {
-        setMessages(prev => prev.map(m => 
-          m.tempId === tempId ? response.message : m
-        ));
-      } else {
-        setMessages(prev => prev.filter(m => m.tempId !== tempId));
+    // Immediate focus restoration
+    messageInputRef.current?.focus();
+    messageInputRef.current?.setSelectionRange(selectionStart, selectionEnd);
+
+    socket.emit('sendMessage', 
+      {
+        senderId: user.id,
+        receiverId: selectedUser.id,
+        content: newMessage
+      },
+      (response) => {
+        setIsSending(false);
+        if (response.status === 'success') {
+          setMessages(prev => prev.map(m => 
+            m.tempId === tempId ? response.message : m
+          ));
+        } else {
+          setMessages(prev => prev.filter(m => m.tempId !== tempId));
+        }
+        // Final focus assurance
+        messageInputRef.current?.focus();
       }
-      messageInputRef.current?.focus();
-    });
+    );
   };
+
 
   const handleLogout = () => {
     localStorage.removeItem("user");
@@ -262,7 +352,13 @@ function Home() {
 
   return (
     <div style={{ display: "flex", height: "100vh" }}>
-      <div style={{ width: "200px", borderRight: "1px solid #ccc", padding: "10px" }}>
+      <div
+        style={{
+          width: "200px",
+          borderRight: "1px solid #ccc",
+          padding: "10px",
+        }}
+      >
         <h3>Welcome, {user.username}</h3>
         <button onClick={handleLogout}>Logout</button>
         <h4>Users</h4>
@@ -274,7 +370,8 @@ function Home() {
               style={{
                 padding: "8px",
                 cursor: "pointer",
-                backgroundColor: selectedUser?.id === u.id ? "#eee" : "transparent",
+                backgroundColor:
+                  selectedUser?.id === u.id ? "#eee" : "transparent",
               }}
             >
               {u.username}
@@ -321,19 +418,22 @@ function Home() {
                 </div>
               ))}
             </div>
-            <form onSubmit={handleSendMessage} style={{ padding: "10px", borderTop: "1px solid #ccc" }}>
+            <form
+              onSubmit={handleSendMessage}
+              style={{ padding: "10px", borderTop: "1px solid #ccc" }}
+            >
               <input
                 ref={messageInputRef}
                 type="text"
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
-                style={{ 
-                  width: '80%', 
-                  padding: '8px',
-                  outline: 'none',
-                  border: '2px solid #007bff',
-                  borderRadius: '4px'
+                style={{
+                  width: "80%",
+                  padding: "8px",
+                  outline: "none",
+                  border: "2px solid #007bff",
+                  borderRadius: "4px",
                 }}
                 disabled={isSending}
                 autoFocus
@@ -348,21 +448,30 @@ function Home() {
             </form>
           </>
         ) : (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <p>Select a user to start chatting</p>
           </div>
         )}
       </div>
-      <div style={{
-        position: "fixed",
-        bottom: 10,
-        right: 10,
-        padding: "5px 10px",
-        backgroundColor: isConnected ? "#4CAF50" : "#F44336",
-        color: "white",
-        borderRadius: "4px",
-        zIndex: 1000,
-      }}>
+      <div
+        style={{
+          position: "fixed",
+          bottom: 10,
+          right: 10,
+          padding: "5px 10px",
+          backgroundColor: isConnected ? "#4CAF50" : "#F44336",
+          color: "white",
+          borderRadius: "4px",
+          zIndex: 1000,
+        }}
+      >
         {isConnected ? "Connected" : "Disconnected"}
       </div>
     </div>
