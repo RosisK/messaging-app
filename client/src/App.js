@@ -1,21 +1,14 @@
-import React, { useState, useEffect } from "react";
-import {
-  BrowserRouter as Router,
-  Route,
-  Routes,
-  Navigate,
-  Link,
-} from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
+import { BrowserRouter as Router, Route, Routes, Navigate, Link } from "react-router-dom";
 import axios from "axios";
 import io from "socket.io-client";
 
 const socketUrl = "https://messaging-app-backend-zsdk.onrender.com";
-console.log("Connecting to Socket.IO at:", socketUrl);
 const socket = io(socketUrl, {
-  transports: ["websocket"], // Force WebSocket transport
-  reconnectionAttempts: 5, // Number of reconnect attempts
-  reconnectionDelay: 1000, // Time between reconnections
-  timeout: 20000, // Connection timeout
+  transports: ["websocket"],
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  timeout: 20000,
 });
 
 const AuthContext = React.createContext();
@@ -40,18 +33,9 @@ function App() {
     <AuthContext.Provider value={{ user, setUser }}>
       <Router>
         <Routes>
-          <Route
-            path="/"
-            element={user ? <Home /> : <Navigate to="/login" />}
-          />
-          <Route
-            path="/login"
-            element={!user ? <Login /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/register"
-            element={!user ? <Register /> : <Navigate to="/" />}
-          />
+          <Route path="/" element={user ? <Home /> : <Navigate to="/login" />} />
+          <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+          <Route path="/register" element={!user ? <Register /> : <Navigate to="/" />} />
         </Routes>
       </Router>
     </AuthContext.Provider>
@@ -67,10 +51,7 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(
-        "https://messaging-app-backend-zsdk.onrender.com/login",
-        { username, password }
-      );
+      const response = await axios.post(`${socketUrl}/login`, { username, password });
       localStorage.setItem("user", JSON.stringify(response.data));
       setUser(response.data);
     } catch (err) {
@@ -103,9 +84,7 @@ function Login() {
         </div>
         <button type="submit">Login</button>
       </form>
-      <p>
-        Don't have an account? <Link to="/register">Register</Link>
-      </p>
+      <p>Don't have an account? <Link to="/register">Register</Link></p>
     </div>
   );
 }
@@ -119,10 +98,7 @@ function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(
-        "https://messaging-app-backend-zsdk.onrender.com/register",
-        { username, password }
-      );
+      const response = await axios.post(`${socketUrl}/register`, { username, password });
       localStorage.setItem("user", JSON.stringify(response.data));
       setUser(response.data);
     } catch (err) {
@@ -155,9 +131,7 @@ function Register() {
         </div>
         <button type="submit">Register</button>
       </form>
-      <p>
-        Already have an account? <Link to="/login">Login</Link>
-      </p>
+      <p>Already have an account? <Link to="/login">Login</Link></p>
     </div>
   );
 }
@@ -170,214 +144,84 @@ function Home() {
   const [newMessage, setNewMessage] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [transport, setTransport] = useState("N/A");
+  const messageInputRef = useRef(null);
 
-  const messageInputRef = React.useRef(null);
-
+  // Focus lock implementation
   useEffect(() => {
-    const onConnect = () => {
-      setIsConnected(true);
-      setTransport(socket.io.engine.transport.name);
-      console.log("Socket connected via:", socket.io.engine.transport.name);
+    const input = messageInputRef.current;
+    if (!input) return;
+
+    const handleBlur = () => {
+      if (document.activeElement !== input && selectedUser) {
+        setTimeout(() => input.focus(), 10);
+      }
     };
 
-    const onDisconnect = () => {
-      setIsConnected(false);
-      console.log("Socket disconnected");
-    };
+    input.addEventListener('blur', handleBlur);
+    return () => input.removeEventListener('blur', handleBlur);
+  }, [selectedUser]);
 
-    const onConnectError = (err) => {
-      console.error("Connection error:", err);
-    };
+  // Connection management
+  useEffect(() => {
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
 
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-    socket.on("connect_error", onConnectError);
-    socket.on("transport-upgrade", (transport) => {
-      console.log("Transport upgraded to:", transport.name);
-      setTransport(transport.name);
-    });
-
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
     return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-      socket.off("connect_error", onConnectError);
-      socket.off("transport-upgrade");
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
     };
   }, []);
 
-  // More detailed status indicator
-  const connectionStatus = () => (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 10,
-        right: 10,
-        padding: "8px 12px",
-        backgroundColor: isConnected ? "#4CAF50" : "#F44336",
-        color: "white",
-        borderRadius: "4px",
-        display: "flex",
-        alignItems: "center",
-        fontSize: "14px",
-      }}
-    >
-      <div
-        style={{
-          width: "10px",
-          height: "10px",
-          borderRadius: "50%",
-          backgroundColor: "white",
-          marginRight: "8px",
-          opacity: isConnected ? 1 : 0.5,
-        }}
-      />
-      {isConnected ? `Connected (${transport})` : "Disconnected"}
-      {!isConnected && (
-        <button
-          onClick={() => socket.connect()}
-          style={{
-            marginLeft: "10px",
-            padding: "2px 8px",
-            background: "white",
-            color: "#F44336",
-            border: "none",
-            borderRadius: "3px",
-            cursor: "pointer",
-          }}
-        >
-          Reconnect
-        </button>
-      )}
-    </div>
-  );
-
-  // Fetch users and messages
-  const fetchData = async () => {
-    if (!user) return;
-
-    try {
-      // Get all users except current user
-      const usersResponse = await axios.get(
-        `https://messaging-app-backend-zsdk.onrender.com/users?currentUserId=${user.id}`
-      );
-      setUsers(usersResponse.data);
-
-      // Get messages if a user is selected
-      if (selectedUser) {
-        const messagesResponse = await axios.get(
-          `https://messaging-app-backend-zsdk.onrender.com/messages/${user.id}/${selectedUser.id}`
-        );
-        setMessages(messagesResponse.data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch data:", err);
-    }
-  };
-
-  // Initialize socket and data
+  // Data fetching
   useEffect(() => {
     if (!user) return;
 
-    socket.emit("join", user.id);
+    const fetchData = async () => {
+      try {
+        const usersResponse = await axios.get(`${socketUrl}/users?currentUserId=${user.id}`);
+        setUsers(usersResponse.data);
+        
+        if (selectedUser) {
+          const messagesResponse = await axios.get(
+            `${socketUrl}/messages/${user.id}/${selectedUser.id}`
+          );
+          setMessages(messagesResponse.data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch data:", err);
+      }
+    };
+
+    socket.emit('join', user.id);
     fetchData();
 
-    // Message received handler
-    const handleNewMessage = (message) => {
-      if (
-        (message.sender_id === user.id &&
-          message.receiver_id === selectedUser?.id) ||
-        (message.receiver_id === user.id &&
-          message.sender_id === selectedUser?.id)
-      ) {
-        setMessages((prev) => [...prev, message]);
-      }
-    };
-
-    socket.on("newMessage", handleNewMessage);
-
-    return () => {
-      socket.off("newMessage", handleNewMessage);
-    };
-  }, [user, selectedUser]);
-
-  // Message Listener
-  useEffect(() => {
-    if (!user) return;
-
     const messageListener = (message) => {
-      // Only add if it's a new message and belongs to current chat
-      if (
-        (message.sender_id === selectedUser?.id ||
-          message.receiver_id === selectedUser?.id) &&
-        message.sender_id !== user.id
-      ) {
-        // Don't add sender's own messages here
-        setMessages((prev) => {
-          const exists = prev.some((m) => m.id === message.id);
+      if ((message.sender_id === selectedUser?.id && message.receiver_id === user.id) ||
+          (message.receiver_id === selectedUser?.id && message.sender_id === user.id)) {
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === message.id);
           return exists ? prev : [...prev, message];
         });
       }
     };
 
-    socket.on("newMessage", messageListener);
-
-    return () => {
-      socket.off("newMessage", messageListener);
-    };
+    socket.on('newMessage', messageListener);
+    return () => socket.off('newMessage', messageListener);
   }, [user, selectedUser]);
 
-  // Focus when selectedUser changes
+  // Focus when selecting user
   useEffect(() => {
     if (selectedUser) {
-      messageInputRef.current?.focus();
+      setTimeout(() => messageInputRef.current?.focus(), 100);
     }
   }, [selectedUser]);
 
-  useEffect(() => {
-    // Use a small timeout to ensure the element is rendered
-    const timer = setTimeout(() => {
-      if (selectedUser) {
-        messageInputRef.current?.focus();
-      }
-    }, 100);
-  
-    return () => clearTimeout(timer);
-  }, [selectedUser]);
-
-  useEffect(() => {
-    // Connection status handlers
-    const onConnect = () => {
-      setIsConnected(true);
-      console.log("Socket connected");
-    };
-
-    const onDisconnect = () => {
-      setIsConnected(false);
-      console.log("Socket disconnected");
-    };
-
-    // Setup event listeners
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-
-    // Cleanup function
-    return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-    };
-  }, []); // Empty dependency array means this runs once on mount
-
-  // Handle sending messages
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser || isSending) return;
-  
-    // Store the current scroll position
-    const chatContainer = document.querySelector('[style*="overflowY: auto"]');
-    const scrollBefore = chatContainer?.scrollTop;
-    const scrollHeightBefore = chatContainer?.scrollHeight;
-  
+
     setIsSending(true);
     const tempId = Date.now();
     const tempMessage = {
@@ -389,43 +233,26 @@ function Home() {
       sender_name: user.username,
       isPending: true
     };
-  
+
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
-  
-    // Focus the input immediately after state update
-    setTimeout(() => {
-      messageInputRef.current?.focus();
-    }, 0);
-  
-    socket.emit('sendMessage', 
-      {
-        senderId: user.id,
-        receiverId: selectedUser.id,
-        content: newMessage
-      },
-      (response) => {
-        setIsSending(false);
-        if (response.status === 'success') {
-          setMessages(prev => prev.map(m => 
-            m.tempId === tempId ? response.message : m
-          ));
-        } else {
-          setMessages(prev => prev.filter(m => m.tempId !== tempId));
-        }
-        
-        // Restore focus after all updates complete
-        setTimeout(() => {
-          messageInputRef.current?.focus();
-          
-          // Restore scroll position if needed
-          if (chatContainer && scrollBefore !== undefined) {
-            const scrollDifference = chatContainer.scrollHeight - scrollHeightBefore;
-            chatContainer.scrollTop = scrollBefore + scrollDifference;
-          }
-        }, 0);
+    messageInputRef.current?.focus();
+
+    socket.emit('sendMessage', {
+      senderId: user.id,
+      receiverId: selectedUser.id,
+      content: newMessage
+    }, (response) => {
+      setIsSending(false);
+      if (response.status === 'success') {
+        setMessages(prev => prev.map(m => 
+          m.tempId === tempId ? response.message : m
+        ));
+      } else {
+        setMessages(prev => prev.filter(m => m.tempId !== tempId));
       }
-    );
+      messageInputRef.current?.focus();
+    });
   };
 
   const handleLogout = () => {
@@ -435,13 +262,7 @@ function Home() {
 
   return (
     <div style={{ display: "flex", height: "100vh" }}>
-      <div
-        style={{
-          width: "200px",
-          borderRight: "1px solid #ccc",
-          padding: "10px",
-        }}
-      >
+      <div style={{ width: "200px", borderRight: "1px solid #ccc", padding: "10px" }}>
         <h3>Welcome, {user.username}</h3>
         <button onClick={handleLogout}>Logout</button>
         <h4>Users</h4>
@@ -453,8 +274,7 @@ function Home() {
               style={{
                 padding: "8px",
                 cursor: "pointer",
-                backgroundColor:
-                  selectedUser?.id === u.id ? "#eee" : "transparent",
+                backgroundColor: selectedUser?.id === u.id ? "#eee" : "transparent",
               }}
             >
               {u.username}
@@ -465,21 +285,10 @@ function Home() {
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         {selectedUser ? (
           <>
-            <div
-              style={{
-                padding: "10px",
-                borderBottom: "1px solid #ccc",
-              }}
-            >
+            <div style={{ padding: "10px", borderBottom: "1px solid #ccc" }}>
               <h3>Chat with {selectedUser.username}</h3>
             </div>
-            <div
-              style={{
-                flex: 1,
-                padding: "10px",
-                overflowY: "auto",
-              }}
-            >
+            <div style={{ flex: 1, padding: "10px", overflowY: "auto" }}>
               {messages.map((message) => (
                 <div
                   key={message.id || message.tempId}
@@ -506,44 +315,29 @@ function Home() {
                     {message.isPending && " (Sending...)"}
                     {message.failed && " (Failed)"}
                   </div>
-                  <div
-                    style={{
-                      fontSize: "0.8em",
-                      color: "#666",
-                    }}
-                  >
+                  <div style={{ fontSize: "0.8em", color: "#666" }}>
                     {new Date(message.timestamp).toLocaleTimeString()}
                   </div>
                 </div>
               ))}
             </div>
-            <form
-              onSubmit={handleSendMessage}
-              style={{
-                padding: "10px",
-                borderTop: "1px solid #ccc",
-              }}
-            >
+            <form onSubmit={handleSendMessage} style={{ padding: "10px", borderTop: "1px solid #ccc" }}>
               <input
-  ref={messageInputRef}
-  type="text"
-  value={newMessage}
-  onChange={(e) => setNewMessage(e.target.value)}
-  placeholder="Type a message..."
-  style={{ 
-    width: '80%', 
-    padding: '8px',
-    outline: 'none',
-    border: '2px solid black',
-    borderRadius: '4px',
-    flexShrink: 0 // Prevents layout shifts
-  }}
-  disabled={isSending}
-  onBlur={() => {
-    // Small timeout to allow click events to process first
-    setTimeout(() => messageInputRef.current?.focus(), 50);
-  }}
-/>
+                ref={messageInputRef}
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                style={{ 
+                  width: '80%', 
+                  padding: '8px',
+                  outline: 'none',
+                  border: '2px solid #007bff',
+                  borderRadius: '4px'
+                }}
+                disabled={isSending}
+                autoFocus
+              />
               <button
                 type="submit"
                 style={{ width: "18%", padding: "8px" }}
@@ -554,43 +348,21 @@ function Home() {
             </form>
           </>
         ) : (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <p>Select a user to start chatting</p>
           </div>
         )}
       </div>
-      {/* Add this status indicator */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 10,
-          right: 10,
-          padding: "5px 10px",
-          backgroundColor: isConnected ? "#4CAF50" : "#F44336",
-          color: "white",
-          borderRadius: "4px",
-          zIndex: 1000,
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        <div
-          style={{
-            width: "10px",
-            height: "10px",
-            borderRadius: "50%",
-            backgroundColor: "white",
-            marginRight: "8px",
-            animation: isConnected ? "pulse 2s infinite" : "none",
-          }}
-        />
+      <div style={{
+        position: "fixed",
+        bottom: 10,
+        right: 10,
+        padding: "5px 10px",
+        backgroundColor: isConnected ? "#4CAF50" : "#F44336",
+        color: "white",
+        borderRadius: "4px",
+        zIndex: 1000,
+      }}>
         {isConnected ? "Connected" : "Disconnected"}
       </div>
     </div>
