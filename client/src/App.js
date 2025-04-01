@@ -313,37 +313,37 @@ function Home() {
       content: newMessage,
       timestamp: new Date().toISOString(),
       sender_name: user.username,
-      isPending: true
+      isPending: true,
     };
 
-    setMessages(prev => [...prev, tempMessage]);
-    setNewMessage('');
+    setMessages((prev) => [...prev, tempMessage]);
+    setNewMessage("");
 
     // Immediate focus restoration
     messageInputRef.current?.focus();
     messageInputRef.current?.setSelectionRange(selectionStart, selectionEnd);
 
-    socket.emit('sendMessage', 
+    socket.emit(
+      "sendMessage",
       {
         senderId: user.id,
         receiverId: selectedUser.id,
-        content: newMessage
+        content: newMessage,
       },
       (response) => {
         setIsSending(false);
-        if (response.status === 'success') {
-          setMessages(prev => prev.map(m => 
-            m.tempId === tempId ? response.message : m
-          ));
+        if (response.status === "success") {
+          setMessages((prev) =>
+            prev.map((m) => (m.tempId === tempId ? response.message : m))
+          );
         } else {
-          setMessages(prev => prev.filter(m => m.tempId !== tempId));
+          setMessages((prev) => prev.filter((m) => m.tempId !== tempId));
         }
         // Final focus assurance
         messageInputRef.current?.focus();
       }
     );
   };
-
 
   const handleLogout = () => {
     localStorage.removeItem("user");
@@ -437,6 +437,13 @@ function Home() {
                 }}
                 disabled={isSending}
                 autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSendMessage(e);
+                    // Prevent default to avoid any form submission behavior
+                    e.preventDefault();
+                  }
+                }}
               />
               <button
                 type="submit"
